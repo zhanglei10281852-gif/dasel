@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "sessionId": "6af00849443b5a2122696972",
+  "exceededTwoHours": "否",
+  "sessionStartedAt": "2026-11-08T05:27:37.573Z",
+  "sessionCompletedAt": "2026-11-08T05:52:20.222Z",
+  "sessionDurationSeconds": 1482,
+  "sessionDurationSource": "trae-session-realtime-duration",
+  "terminalStatus": "completed",
+  "evidence": {
+    "start": {
+      "file": "C:\\Users\\czxy4\\AppData\\Roaming\\Trae CN\\logs\\20261108T132646\\window1\\renderer.log",
+      "line": 864
+    },
+    "completed": {
+      "file": "C:\\Users\\czxy4\\AppData\\Roaming\\Trae CN\\logs\\20261108T132646\\window1\\renderer.log",
+      "line": 6999
+    }
+  }
+}

@@ -39,6 +39,7 @@ func TestExpr_expr(t *testing.T) {
 	AssignExpr{}.expr()
 	NullExpr{}.expr()
 	RegexExpr{}.expr()
+	ProgramExpr{}.expr()
 }
 
 func TestChainExprs(t *testing.T) {

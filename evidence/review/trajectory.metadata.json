@@ -1,0 +1,16 @@
+{
+  "questionId": "tomwright-dasel-54cf53db-9cab-4aa8-91ec-7cd5664a8023",
+  "title": "在查询中定义带独立调用作用域的函数",
+  "repoUrl": "https://github.com/TomWright/dasel",
+  "version": "521d3c39fe06b276f65695d3ae27bd46b76c4106",
+  "researchDirectory": "F:\\swe\\099924\\project-01",
+  "batchDirectory": "F:\\swe\\099924",
+  "sessionId": "573311172224344:f552698a8fac57cd7bb9e5af086cdb95_6af00849443b5a2122696972.6af00849443b5a2122696975.6af00849443b5a2122696973:TraeCode CN.3.3.104.no_sid.no_ppe.T(2026/11/8 13:27:37)",
+  "sourceFile": "trae-bridge:bridge_messages",
+  "localFile": "F:\\swe\\099924\\trajectories\\tomwright-dasel-54cf53db-9cab-4aa8-91ec-7cd5664a-060a633f\\session-3d4205366aa9552b.md",
+  "traceFormat": "trae-bridge:bridge_messages",
+  "memorySourceFile": "",
+  "memoryLocalFile": "",
+  "traceUpdatedAt": "2026-11-08T05:53:56.810Z",
+  "archivedAt": "2026-11-08T05:53:57.688Z"
+}

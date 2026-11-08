@@ -22,12 +22,12 @@ func reduceExprExecutor(e ast.ReduceExpr) (expressionExecutor, error) {
 		}
 
 		// Save and restore the acc variable to avoid polluting the caller's scope.
-		prevAcc, hadAcc := options.Vars["acc"]
+		prevAcc, hadAcc := options.lookupVar("acc")
 		defer func() {
 			if hadAcc {
-				options.Vars["acc"] = prevAcc
+				options.setVar("acc", prevAcc)
 			} else {
-				delete(options.Vars, "acc")
+				options.deleteVar("acc")
 			}
 		}()
 
@@ -42,8 +42,8 @@ func reduceExprExecutor(e ast.ReduceExpr) (expressionExecutor, error) {
 			}
 
 			// Set $acc to the current accumulator and $this to the element value.
-			options.Vars["acc"] = acc
-			options.Vars["this"] = elemVal
+			options.setVar("acc", acc)
+			options.setVar("this", elemVal)
 
 			// Evaluate the update expression.
 			newAcc, err := ExecuteAST(ctx, e.Update, elemVal, options)

@@ -1,0 +1,13 @@
+{
+  "method": "PowerShell System.Drawing.Graphics.CopyFromScreen",
+  "view": "dedicated report terminal client area",
+  "fallbackReason": "No stable target window exposing current Codex conclusion report was available in window listing",
+  "file": "evidence/screenshots/01-rubric-comparison.png",
+  "width": 1800,
+  "height": 640,
+  "openedAndVisuallyReviewed": true,
+  "allRubricsVisible": true,
+  "rawEvidenceSummaryVisible": true,
+  "unrelatedUIAbsent": true,
+  "finalImages": 1
+}

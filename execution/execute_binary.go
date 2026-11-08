@@ -107,6 +107,18 @@ func init() {
 	})
 	binaryExpressionExecutors[lexer.Equals] = func(ctx context.Context, expr ast.BinaryExpr, value *model.Value, options *Options) (*model.Value, error) {
 		if leftVar, ok := expr.Left.(ast.VariableExpr); ok {
+			if options.scope != nil {
+				// Inside a user-defined function every variable assignment
+				// (re)binds the name in this call's own scope. The caller's
+				// bindings and any object referenced by the previous value
+				// are left untouched.
+				right, err := ExecuteAST(ctx, expr.Right, value, options)
+				if err != nil {
+					return nil, fmt.Errorf("error evaluating right expression: %w", err)
+				}
+				options.scope.vars[leftVar.Name] = right
+				return right, nil
+			}
 			// It is expected that the left side of an assignment may not exist yet.
 			if _, ok := options.Vars[leftVar.Name]; !ok {
 				options.Vars[leftVar.Name] = model.NewNullValue()

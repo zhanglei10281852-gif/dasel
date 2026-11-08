@@ -45,7 +45,7 @@ func ExecuteAST(ctx context.Context, expr ast.Expr, value *model.Value, options 
 	}
 
 	executor := func(ctx context.Context, options *Options, data *model.Value) (*model.Value, error) {
-		options.Vars["this"] = data
+		options.setVar("this", data)
 		out, err := executorFn(ctx, options, data)
 		if err != nil {
 			return out, err
@@ -97,6 +97,8 @@ func exprExecutor(options *Options, expr ast.Expr) (expressionExecutor, error) {
 		return unaryExprExecutor(e)
 	case ast.CallExpr:
 		return callExprExecutor(options, e)
+	case ast.ProgramExpr:
+		return programExprExecutor(e)
 	case ast.ChainedExpr:
 		return chainedExprExecutor(e)
 	case ast.SpreadExpr:
@@ -184,7 +186,7 @@ func variableExprExecutor(e ast.VariableExpr) (expressionExecutor, error) {
 	return func(ctx context.Context, options *Options, data *model.Value) (*model.Value, error) {
 		//ctx = WithExecutorID(ctx, "variableExpr")
 		varName := e.Name
-		res, ok := options.Vars[varName]
+		res, ok := options.lookupVar(varName)
 		if ok {
 			return res, nil
 		}

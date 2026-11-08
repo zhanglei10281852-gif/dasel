@@ -81,7 +81,24 @@ func (p *Parser) parseExpressions(
 }
 
 func (p *Parser) Parse() (ast.Expr, error) {
-	return p.parseExpressions([]lexer.TokenKind{lexer.EOF}, []lexer.TokenKind{lexer.Semicolon}, true, bpDefault, true)
+	defs, err := p.parseFunctionDefs()
+	if err != nil {
+		return nil, err
+	}
+
+	expr, err := p.parseExpressions([]lexer.TokenKind{lexer.EOF}, []lexer.TokenKind{lexer.Semicolon}, true, bpDefault, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(defs) == 0 {
+		return expr, nil
+	}
+
+	return ast.ProgramExpr{
+		Functions: defs,
+		Expr:      expr,
+	}, nil
 }
 
 func (p *Parser) parseExpression(bp bindingPower) (left ast.Expr, err error) {

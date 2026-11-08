@@ -1,0 +1,14 @@
+TomWright/dasel | 54cf53db | 在查询中定义带独立调用作用域的函数
+完成度：完成 | Trae 65 轮（核对扫描值）| 同一 Session 6af00849443b5a2122696972 | 1482 秒 | 超过两小时：否
+基线 521d3c39fe06b276f65695d3ae27bd46b76c4106 | 冻结 Rubric 7 条 | 不收录 | 进入 delivery_qc 后停留
+Rubric ID：1｜状态：通过｜期望行为：CLI 与 Go 执行入口均可解析查询开头的具名函数声明并重复传参调用；声明不替换输入，函数体按现有分号串联语义返回最后结果，多个声明可沿非递归调用链组合调用。｜实际观察：CLI 返回 a!、b!；Go 公共入口组合调用返回 42；分号函数体返回末值。｜直接证据：internal/cli/def_test.go:7；execution/execute_def_test.go:44；review/independent-probe.log:1
+Rubric ID：2｜状态：通过｜期望行为：函数读取调用方变量后，对形参和普通变量名的赋值只改变本次调用绑定；嵌套同名形参和局部变量在返回后不改变外层或宿主绑定。｜实际观察：嵌套调用返回 [[11,5],7]，宿主 x 保持 7，local 未写入宿主。｜直接证据：execute_binary.go:108；options.go:87/103；review/independent-probe.log 的 R2 两项均为 ok=true
+Rubric ID：3｜状态：通过｜期望行为：通过形参对象或已提供的 $root 修改字段仍可在原对象观察到；函数体的 $this 及已有 $key 与当前节点和迭代一致，变量隔离不吞掉合法数据修改。｜实际观察：对象字段先写 2 再重绑定形参，原对象保留 2；嵌套 key 为 [[0,0],[1,1]]，this 返回 [[1,2],[3]]。｜直接证据：model/value_map.go:85；options.go:136；review/independent-probe.log 的 R3 三项均为 ok=true
+Rubric ID：4｜状态：通过｜期望行为：重复函数或形参、原生名称冲突、参数数量错误和直接或间接递归均返回明确错误，递归不会无限执行。｜实际观察：重复声明、重复形参、原生冲突、少参、多参及两类递归均返回指定错误；宿主 tick 名称冲突被拒绝。｜直接证据：selector/parser/parse_def.go:27/68；execute_def.go:28/46/57；linux-tests.jsonl 的 TestDef_Errors 全部通过
+Rubric ID：5｜状态：通过｜期望行为：嵌套函数体发生真实求值错误后保留原错误信息并恢复调用方绑定；复用同一 Options 执行新查询时没有残留定义或局部变量，更正后的查询能正常执行。｜实际观察：内层 toInt 的 invalid syntax 原错误保留；返回后宿主 x=7、字段=4、无 local、旧 outer 为未知函数；同 Options 修正后返回 42。｜直接证据：execute_def.go:20/61/74；review/independent-probe.log 的 R5 五项均为 ok=true
+Rubric ID：6｜状态：通过｜期望行为：无声明查询的原生及宿主注册函数、CLI --var、普通变量全局赋值和名为 def 的数据字段保持既有结果与错误语义。｜实际观察：无声明兼容测试通过；CLI --var 返回 15，def 字段返回 1；顶层 x=9 后转换错误仍保留 9，下次返回 10。｜直接证据：selector/parser/parse_def.go:16；execute_binary.go:123；internal/cli/def_test.go:21/56；review/independent-probe.log 的 R6
+Rubric ID：7｜状态：通过｜期望行为：实参在调用方当前数据上仅求值一次，函数体能组合原生及查询内函数；查询成功或失败后宿主原生函数集合均未被增加、覆盖或删除。｜实际观察：两个调用节点的 tick 总次数为 2，结果 [4,6]；成功和真实失败后宿主 46 个函数的名称及函数指针均未改变。｜直接证据：execute_func.go:13；execute_def.go:53/69；review/independent-probe.log 的 R7 三项均为 ok=true
+原始验证：unshare -n；隔离空 GOCACHE/GOMODCACHE；固定 vendor；go test -count=1 -json ./...：20 包、2112 项通过、0 失败。
+原始输出：CORE ALL PACKAGES PASS；INDEPENDENT CHECKS 16 PASS；CLI ["a!","b!"]、15；Go result=[42] err=<nil>。
+错误展开原文：strconv.ParseInt: parsing "bad": invalid syntax；后续 unknown function: "outer"；修正后 actual=int{42}。
+既有 KDL 两项 skip 与本次改动无关；全部 def 专项实际执行。证据：evidence/review/linux-tests.jsonl、independent-probe.log、offline-validation.log。

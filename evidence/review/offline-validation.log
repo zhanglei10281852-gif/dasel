@@ -1,0 +1,58 @@
+ip: RTNETLINK answers: Network unreachable
+ESPACE net:[4026532214]
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+CORE go test -count=1 -json ./...
+CORE ALL PACKAGES PASS
+R1 public Go API nonrecursive chain ok=true actual=result=[42] err=<nil>
+R2 nested parameter and ordinary binding ok=true actual=array[]{
+    0: array[]{
+        0: int{11},
+        1: int{5},
+    },
+    1: int{7},
+}
+R2 host unchanged ok=true actual=int{7}
+R3 field write survives object rebinding ok=true actual=int{2}
+R3 nested key restored ok=true actual=array[]{
+    0: array[]{
+        0: int{0},
+        1: int{0},
+    },
+    1: array[]{
+        0: int{1},
+        1: int{1},
+    },
+}
+R3 nested this ok=true actual=array[]{
+    0: array[]{
+        0: int{1},
+        1: int{2},
+    },
+    1: array[]{
+        0: int{3},
+    },
+}
+R5 nested actual conversion error ok=true actual=error executing selector: execution error when processing ast.ProgramExpr: execution error when processing ast.CallExpr: error executing function "outer": execution error when processing ast.ChainedExpr: error executing expression: execution error when processing ast.CallExpr: error executing function "inner": execution error when processing ast.ChainedExpr: error executing expression: execution error when processing ast.CallExpr: error executing function: error execution func "toInt": strconv.ParseInt: parsing "bad": invalid syntax
+R5 host binding and finished field write ok=true actual={
+    value: int{4},
+}
+R5 no local ok=true actual=false
+R5 no stale definition ok=true actual=error executing selector: error evaluating expression ast.CallExpr: unknown function: "outer"
+R5 corrected same Options ok=true actual=int{42}
+R7 one evaluation on caller nodes ok=true actual=ticks=2 value=array[]{
+    0: int{4},
+    1: int{6},
+}
+R7 native collection unchanged on success ok=true actual=46
+R7 native collection unchanged on failure ok=true actual=46
+R4 custom native conflict ok=true actual=error executing selector: execution error when processing ast.ProgramExpr: function "tick" cannot be defined: a native function with the same name already exists
+R6 global assignment persists after error ok=true actual=int{9}
+INDEPENDENT CHECKS 16 PASS
+[
+    "a!",
+    "b!"
+]
+15
+OFFLINE VALIDATION COMPLETE

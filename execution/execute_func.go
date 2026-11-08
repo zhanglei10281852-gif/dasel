@@ -53,6 +53,9 @@ func callExprExecutor(options *Options, e ast.CallExpr) (expressionExecutor, err
 	if !options.Unstable && (slices.Contains(unstableFuncs, e.Function)) {
 		return nil, errors.New("unstable function are not enabled. to enable them use --unstable")
 	}
+	if fn, ok := options.userFuncs[e.Function]; ok {
+		return userFuncCallExecutor(options, fn, e.Args)
+	}
 	if f, ok := options.Funcs.Get(e.Function); ok {
 		res, err := callFnExecutor(f, e.Args)
 		if err != nil {

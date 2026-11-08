@@ -1,0 +1,6 @@
+{
+  "vendor.tar.gz": "14e709f1ff81a0e98d67d650c4ca5d4861f61211a3c5d8eeac8a6ed2b2ef74bf",
+  "goMod": "go 1.25",
+  "source": "go mod vendor from unchanged pinned go.mod/go.sum",
+  "runtimeDownloads": false
+}
