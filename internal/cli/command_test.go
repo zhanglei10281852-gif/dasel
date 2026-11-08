@@ -3,8 +3,10 @@ package cli_test
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tomwright/dasel/v3/internal/cli"
@@ -453,4 +455,276 @@ func TestRun(t *testing.T) {
 			err:    nil,
 		}))
 	})
+}
+
+// runDaselIO runs dasel with custom reader/writer, for stream tests that
+// need to observe read/write failures.
+func runDaselIO(args []string, in io.Reader, out io.Writer) error {
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+	os.Args = append([]string{"dasel", "query"}, args...)
+	_, err := cli.Run(in, out, bytes.NewBuffer(nil))
+	return err
+}
+
+type trackingReader struct {
+	data []byte
+	read bool
+}
+
+func (r *trackingReader) Read(p []byte) (int, error) {
+	r.read = true
+	if len(r.data) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+var errStreamTestWrite = errors.New("stream test write failure")
+
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) { return 0, errStreamTestWrite }
+
+// acceptOneWriter accepts the first write then fails all subsequent writes.
+type acceptOneWriter struct {
+	writes int
+}
+
+func (w *acceptOneWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == 1 {
+		return len(p), nil
+	}
+	return 0, errStreamTestWrite
+}
+
+func TestStream(t *testing.T) {
+	t.Run("queries each record in order", runTest(testCase{
+		args:   []string{"--stream", `name`},
+		in:     []byte("{\"name\":\"a\"}\n{\"name\":\"b\"}\n{\"name\":\"c\"}\n"),
+		stdout: []byte("\"a\"\n\"b\"\n\"c\"\n"),
+	}))
+
+	t.Run("defaults to json without explicit formats", runTest(testCase{
+		args:   []string{"--stream", `name`},
+		in:     []byte("{\"name\":\"a\"}{\"name\":\"b\"}"),
+		stdout: []byte("\"a\"\n\"b\"\n"),
+	}))
+
+	t.Run("empty stream executes no query and outputs nothing", runTest(testCase{
+		args:   []string{"--stream", `name`},
+		in:     []byte{},
+		stdout: []byte{},
+	}))
+
+	t.Run("whitespace only stream outputs nothing", runTest(testCase{
+		args:   []string{"--stream", `name`},
+		in:     []byte("  \n\t\r\n"),
+		stdout: []byte{},
+	}))
+
+	t.Run("records can span multiple lines", runTest(testCase{
+		args:   []string{"--stream", `name`},
+		in:     []byte("{\n  \"name\": \"a\"\n}\n{\n  \"name\": \"b\"\n}\n"),
+		stdout: []byte("\"a\"\n\"b\"\n"),
+	}))
+
+	t.Run("empty query passes records through", runTest(testCase{
+		args: []string{"--stream"},
+		in:   []byte("[1, 2][3, 4]"),
+		stdout: []byte(`[
+    1,
+    2
+]
+[
+    3,
+    4
+]
+`),
+	}))
+
+	t.Run("array is one record even with elements on lines", runTest(testCase{
+		args:   []string{"--stream", `$root[0]`},
+		in:     []byte("[\n  1,\n  2\n]\n[\n  3,\n  4\n]\n"),
+		stdout: []byte("1\n3\n"),
+	}))
+
+	t.Run("scalar records", runTest(testCase{
+		args:   []string{"--stream"},
+		in:     []byte("1 2 true false \"x\" null\n"),
+		stdout: []byte("1\n2\ntrue\nfalse\n\"x\"\nnull\n"),
+	}))
+
+	t.Run("compact output", runTest(testCase{
+		args:   []string{"--stream", "--compact"},
+		in:     []byte("{\"name\":\"a\"}\n{\"name\":\"b\"}\n"),
+		stdout: []byte("{\"name\":\"a\"}\n{\"name\":\"b\"}\n"),
+	}))
+
+	t.Run("root and field modifications stay within record", runTest(testCase{
+		args:   []string{"--stream", "--root", `a = 2`},
+		in:     []byte("{\"a\":1}\n{\"a\":1}\n"),
+		stdout: []byte("{\n    \"a\": 2\n}\n{\n    \"a\": 2\n}\n"),
+	}))
+
+	t.Run("var reassignment resets for every record", runTest(testCase{
+		args:   []string{"--stream", "--var", "c=json:0", `$c = $c + 1`},
+		in:     []byte("{}\n{}\n{}\n"),
+		stdout: []byte("1\n1\n1\n"),
+	}))
+
+	t.Run("nested var mutations reset for every record", runTest(testCase{
+		args:   []string{"--stream", "--var", "x=json:{\"n\":1}", `$x.n = $x.n + 1`},
+		in:     []byte("{}\n{}\n{}\n"),
+		stdout: []byte("2\n2\n2\n"),
+	}))
+
+	t.Run("new vars do not leak into later records", runTest(testCase{
+		// The first statement creates $z; a fresh vars map per record means
+		// the second statement still resolves against the just-created var.
+		args:   []string{"--stream", `$z = "v"; $z`},
+		in:     []byte("{}\n{}\n"),
+		stdout: []byte("\"v\"\n\"v\"\n"),
+	}))
+
+	t.Run("spread keeps multi-document output per record", runTest(testCase{
+		args:   []string{"--stream", `...`},
+		in:     []byte("[1, 2]\n[3, 4]\n"),
+		stdout: []byte("1\n\n2\n3\n\n4\n"),
+	}))
+
+	t.Run("branch result writes multiple documents", runTest(testCase{
+		args:   []string{"--stream", "--unstable", `branch(...)`},
+		in:     []byte("[1, 2]\n[3]\n"),
+		stdout: []byte("1\n\n2\n3\n"),
+	}))
+
+	t.Run("parse failure keeps prior results and reports record index", func(t *testing.T) {
+		out, _, err := runDasel([]string{"--stream", `a`},
+			[]byte("{\"a\":1}\n{\"a\":2}\n{oops\n{\"a\":4}\n"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "record 3") {
+			t.Fatalf("expected error to reference record 3, got: %v", err)
+		}
+		if string(out) != "1\n2\n" {
+			t.Fatalf("expected only prior record results, got: %q", string(out))
+		}
+	})
+
+	t.Run("query failure keeps prior results and reports record index", func(t *testing.T) {
+		out, _, err := runDasel([]string{"--stream", `a`},
+			[]byte("{\"a\":1}\n{\"a\":2}\n5\n{\"a\":4}\n"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "record 3") {
+			t.Fatalf("expected error to reference record 3, got: %v", err)
+		}
+		if string(out) != "1\n2\n" {
+			t.Fatalf("expected only prior record results, got: %q", string(out))
+		}
+	})
+
+	t.Run("failed record emits no partial output", func(t *testing.T) {
+		out, _, err := runDasel([]string{"--stream", `a`},
+			[]byte("{\"a\":1}\n{oops\n"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if string(out) != "1\n" {
+			t.Fatalf("expected no output for the failed record, got: %q", string(out))
+		}
+	})
+
+	t.Run("output write failure stops further records", func(t *testing.T) {
+		w := &acceptOneWriter{}
+		err := runDaselIO([]string{"--stream", `a`},
+			strings.NewReader("{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n"), w)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !errors.Is(err, errStreamTestWrite) {
+			t.Fatalf("expected write failure, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "record 2") {
+			t.Fatalf("expected error to reference record 2, got: %v", err)
+		}
+		if w.writes != 2 {
+			t.Fatalf("expected processing to stop after record 2, got %d write attempts", w.writes)
+		}
+	})
+
+	t.Run("immediate output write failure reports record 1", func(t *testing.T) {
+		err := runDaselIO([]string{"--stream", `a`},
+			strings.NewReader("{\"a\":1}\n{\"a\":2}\n"), errorWriter{})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !errors.Is(err, errStreamTestWrite) {
+			t.Fatalf("expected write failure, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "record 1") {
+			t.Fatalf("expected error to reference record 1, got: %v", err)
+		}
+	})
+
+	t.Run("unsupported input format errors before reading input", func(t *testing.T) {
+		r := &trackingReader{data: []byte("{\"a\":1}\n")}
+		err := runDaselIO([]string{"--stream", "-i", "yaml", `a`}, r, bytes.NewBuffer(nil))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "json") {
+			t.Fatalf("expected error to mention json, got: %v", err)
+		}
+		if r.read {
+			t.Fatal("expected stdin not to be read before the format error")
+		}
+	})
+
+	t.Run("unsupported output format errors before reading input", func(t *testing.T) {
+		r := &trackingReader{data: []byte("{\"a\":1}\n")}
+		err := runDaselIO([]string{"--stream", "-o", "yaml", `a`}, r, bytes.NewBuffer(nil))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "json") {
+			t.Fatalf("expected error to mention json, got: %v", err)
+		}
+		if r.read {
+			t.Fatal("expected stdin not to be read before the format error")
+		}
+	})
+
+	t.Run("interactive combination errors before reading input", func(t *testing.T) {
+		r := &trackingReader{data: []byte("{\"a\":1}\n")}
+		err := runDaselIO([]string{"--stream", "--it", `a`}, r, bytes.NewBuffer(nil))
+		if !errors.Is(err, cli.ErrStreamInteractive) {
+			t.Fatalf("expected ErrStreamInteractive, got: %v", err)
+		}
+		if r.read {
+			t.Fatal("expected stdin not to be read before the interactive error")
+		}
+	})
+}
+
+func TestNonStreamBehaviourUnchanged(t *testing.T) {
+	t.Run("empty input outputs null", runTest(testCase{
+		args:   []string{"-i", "json", "-o", "json"},
+		in:     []byte{},
+		stdout: []byte("null\n"),
+	}))
+
+	t.Run("ndjson remains a single multi-document batch", runTest(testCase{
+		args:   []string{"-i", "json", "-o", "json", `a`},
+		in:     []byte("{\"a\":1}\n{\"a\":2}\n"),
+		stdout: []byte("1\n\n2\n"),
+	}))
 }

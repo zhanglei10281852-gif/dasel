@@ -7,6 +7,7 @@ import (
 	json "github.com/goccy/go-json"
 	"github.com/tomwright/dasel/v3/model"
 	"github.com/tomwright/dasel/v3/parsing"
+	"io"
 	"strings"
 )
 
@@ -55,6 +56,65 @@ func (j *jsonReader) Read(data []byte) (*model.Value, error) {
 		}
 		return slice, nil
 	}
+}
+
+// NewStreamReader creates a StreamReader that decodes consecutive top-level
+// JSON values from r, one value at a time.
+//
+// A single value may span multiple reads or multiple lines, and arrays,
+// objects and scalars are each treated as one value.
+func NewStreamReader(r io.Reader) *StreamReader {
+	tracked := &errorTrackingReader{r: r}
+	decoder := json.NewDecoder(tracked)
+	decoder.UseNumber()
+	return &StreamReader{
+		decoder: decoder,
+		reader:  &jsonReader{},
+		r:       tracked,
+	}
+}
+
+// StreamReader reads top-level JSON values from an io.Reader as a stream.
+type StreamReader struct {
+	decoder *json.Decoder
+	reader  *jsonReader
+	r       *errorTrackingReader
+}
+
+// Next decodes and returns the next top-level JSON value.
+//
+// It returns io.EOF when the stream has reached a clean end with no more
+// values. Whitespace-only input results in io.EOF without a value.
+func (s *StreamReader) Next() (*model.Value, error) {
+	if !s.decoder.More() {
+		if s.r.err != nil {
+			return nil, s.r.err
+		}
+		return nil, io.EOF
+	}
+	v, err := s.reader.decodeValue(s.decoder, 0)
+	if err != nil {
+		if s.r.err != nil {
+			return nil, s.r.err
+		}
+		return nil, err
+	}
+	return v, nil
+}
+
+// errorTrackingReader remembers the last non-EOF read error because the
+// underlying JSON decoder silently treats reader errors as end of input.
+type errorTrackingReader struct {
+	r   io.Reader
+	err error
+}
+
+func (r *errorTrackingReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if err != nil && err != io.EOF {
+		r.err = err
+	}
+	return n, err
 }
 
 func (j *jsonReader) decodeValue(decoder *json.Decoder, depth int) (*model.Value, error) {

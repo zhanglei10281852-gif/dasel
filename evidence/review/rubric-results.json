@@ -1,0 +1,47 @@
+{
+  "id": "tomwright-dasel-963a36fb-d904-45a5-ae55-b49bf36fe169",
+  "expectedSyncRevision": 7,
+  "rounds": 87,
+  "harness": "Trae",
+  "completionStatus": "部分完成",
+  "collectionDecision": "收录：难题",
+  "rubricResults": [
+    {
+      "id": 1,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 2,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 3,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 4,
+      "passed": false,
+      "reason": "截断对象、截断数组及非法闭合符号作为第二条记录时均成功退出且未报告第2条输入错误"
+    },
+    {
+      "id": 5,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 6,
+      "passed": false,
+      "reason": "解码器未释放已消费输入 32768条记录后仍保留1277951字节历史输入且缓冲区增至2097152字节"
+    },
+    {
+      "id": 7,
+      "passed": true,
+      "reason": ""
+    }
+  ],
+  "artifactResult": "1 通过\n2 通过\n3 通过\n4 未通过 截断对象、截断数组及非法闭合符号作为第二条记录时均成功退出且未报告第2条输入错误\n5 通过\n6 未通过 解码器未释放已消费输入 32768条记录后仍保留1277951字节历史输入且缓冲区增至2097152字节\n7 通过",
+  "runResult": "1 通过\n2 通过\n3 通过\n4 未通过 截断对象、截断数组及非法闭合符号作为第二条记录时均成功退出且未报告第2条输入错误\n5 通过\n6 未通过 解码器未释放已消费输入 32768条记录后仍保留1277951字节历史输入且缓冲区增至2097152字节\n7 通过"
+}

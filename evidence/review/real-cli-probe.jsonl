@@ -1,0 +1,7 @@
+{"case": "truncated_object", "input": "{\"a\":1}{\"a\":", "args": ["--stream", "a"], "exitCode": 0, "stdout": "1\n", "stderr": ""}
+{"case": "truncated_array", "input": "{\"a\":1}[1,", "args": ["--stream", "a"], "exitCode": 0, "stdout": "1\n", "stderr": ""}
+{"case": "invalid_closing_token", "input": "{\"a\":1}]", "args": ["--stream", "a"], "exitCode": 0, "stdout": "1\n", "stderr": ""}
+{"case": "real_serialization_error", "input": "{\"a\":1}{\"a\":0}{\"a\":2}", "args": ["--stream", "--compact", "[a, 1.0 / a]"], "exitCode": 1, "stdout": "[1,1]\n", "stderr": "dasel: error: error serialising result for input record 2: json: unsupported value: +Inf\n"}
+{"case": "corrected_input", "input": "{\"a\":2}", "args": ["--stream", "a"], "exitCode": 0, "stdout": "2\n", "stderr": ""}
+{"case": "ordinary_yaml", "input": "{\"a\":1}", "args": ["-i", "json", "-o", "yaml"], "exitCode": 0, "stdout": "a: 1\n", "stderr": ""}
+{"case": "real_binary_open_pipe", "inputStillOpen": true, "outputReady": true, "stdout": "\"live\"\n"}

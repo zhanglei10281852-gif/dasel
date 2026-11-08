@@ -1,6 +1,14 @@
 package cli
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/tomwright/dasel/v3/parsing/json"
+)
+
+// ErrStreamInteractive is returned when --stream and --it are used together.
+var ErrStreamInteractive = errors.New("--stream cannot be combined with --it")
 
 type QueryCmd struct {
 	Vars              variables         `flag:"" name:"var" help:"Variables to pass to the query. E.g. --var foo=\"bar\" --var baz=json:file:./some/file.json"`
@@ -13,6 +21,7 @@ type QueryCmd struct {
 	Compact           bool              `flag:"" name:"compact" help:"Output in compact mode (no indentation/newlines)."`
 	Unstable          bool              `flag:"" name:"unstable" help:"Allow access to potentially unstable features."`
 	Interactive       bool              `flag:"" name:"it" help:"Run in interactive mode (alpha)."`
+	Stream            bool              `flag:"" name:"stream" help:"Read a stream of independent top-level JSON values from stdin and output one result per value (JSON input/output only; cannot be combined with --it)."`
 
 	ConfigPath string `name:"config" short:"c" help:"Path to config file" default:"~/dasel.yaml"`
 
@@ -25,12 +34,27 @@ func (c *QueryCmd) Run(ctx *Globals) error {
 		return err
 	}
 
-	if c.InFormat == "" && c.OutFormat == "" {
+	if c.Stream {
+		// Validate flags before any input is read.
+		if c.Interactive {
+			return ErrStreamInteractive
+		}
+		jsonFormat := json.JSON.String()
+		if c.InFormat != "" && c.InFormat != jsonFormat {
+			return fmt.Errorf("--stream only supports json input, got %q", c.InFormat)
+		}
+		if c.OutFormat != "" && c.OutFormat != jsonFormat {
+			return fmt.Errorf("--stream only supports json output, got %q", c.OutFormat)
+		}
+		// Omitted formats always default to JSON in stream mode.
+		c.InFormat = jsonFormat
+		c.OutFormat = jsonFormat
+	} else if c.InFormat == "" && c.OutFormat == "" {
 		c.InFormat = cfg.DefaultFormat
 		c.OutFormat = cfg.DefaultFormat
 	}
 
-	if c.Query == "" && c.InFormat == "" && ctx.Stdin == nil {
+	if !c.Stream && c.Query == "" && c.InFormat == "" && ctx.Stdin == nil {
 		return ErrNoArgsGiven
 	}
 
@@ -54,6 +78,11 @@ func (c *QueryCmd) Run(ctx *Globals) error {
 
 		Stdin: ctx.Stdin,
 	}
+
+	if c.Stream {
+		return runStream(o, ctx.Stdin, ctx.Stdout)
+	}
+
 	outBytes, err := run(o)
 	if err != nil {
 		return err

@@ -1,0 +1,15 @@
+{
+  "method": "PowerShell System.Drawing.Graphics.CopyFromScreen",
+  "view": "dedicated report terminal client area",
+  "fallbackReason": "Current process window inspection did not expose a stable Codex conclusion report region; full report and raw evidence displayed in a dedicated terminal",
+  "file": "evidence/screenshots/01-rubric-comparison.png",
+  "width": 1800,
+  "height": 800,
+  "openedAndVisuallyReviewed": true,
+  "allSevenFrozenRubricsVisible": true,
+  "failuresReasonsImpactsAndLocationsVisible": true,
+  "rawEvidenceVisible": true,
+  "unrelatedUIAbsent": true,
+  "largeBlankAreaAbsent": true,
+  "finalImageCount": 1
+}

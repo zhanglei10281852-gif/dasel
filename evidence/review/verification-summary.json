@@ -1,0 +1,64 @@
+{
+  "id": "tomwright-dasel-963a36fb-d904-45a5-ae55-b49bf36fe169",
+  "expectedSyncRevision": 7,
+  "sourceFileCount": 308,
+  "sourceUnchanged": true,
+  "packages": 20,
+  "tests": 2097,
+  "failed": 0,
+  "skips": [
+    {
+      "package": "github.com/tomwright/dasel/v3/parsing/kdl/internal",
+      "test": "TestSpecV1_SolidusEscape"
+    },
+    {
+      "package": "github.com/tomwright/dasel/v3/parsing/kdl/internal",
+      "test": "TestSpecV2_Fail_LegacyRawString"
+    }
+  ],
+  "independentChecks": 29,
+  "unmetChecks": 5,
+  "rubricResults": [
+    {
+      "id": 1,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 2,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 3,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 4,
+      "passed": false,
+      "reason": "截断对象、截断数组及非法闭合符号作为第二条记录时均成功退出且未报告第2条输入错误"
+    },
+    {
+      "id": 5,
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "id": 6,
+      "passed": false,
+      "reason": "解码器未释放已消费输入 32768条记录后仍保留1277951字节历史输入且缓冲区增至2097152字节"
+    },
+    {
+      "id": 7,
+      "passed": true,
+      "reason": ""
+    }
+  ],
+  "completionStatus": "部分完成",
+  "rounds": 87,
+  "collectionDecision": "收录：难题",
+  "repeatProbeCount": 10,
+  "publicNetworkBlocked": true,
+  "isolatedCaches": true
+}

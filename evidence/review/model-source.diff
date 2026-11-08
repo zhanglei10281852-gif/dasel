@@ -1,0 +1,748 @@
+diff --git a/internal/cli/command_test.go b/internal/cli/command_test.go
+index 827fe55..98dfd43 100644
+--- a/internal/cli/command_test.go
++++ b/internal/cli/command_test.go
+@@ -3,8 +3,10 @@ package cli_test
+ import (
+ 	"bytes"
+ 	"errors"
++	"io"
+ 	"os"
+ 	"reflect"
++	"strings"
+ 	"testing"
+ 
+ 	"github.com/tomwright/dasel/v3/internal/cli"
+@@ -454,3 +456,275 @@ func TestRun(t *testing.T) {
+ 		}))
+ 	})
+ }
++
++// runDaselIO runs dasel with custom reader/writer, for stream tests that
++// need to observe read/write failures.
++func runDaselIO(args []string, in io.Reader, out io.Writer) error {
++	originalArgs := os.Args
++	defer func() {
++		os.Args = originalArgs
++	}()
++	os.Args = append([]string{"dasel", "query"}, args...)
++	_, err := cli.Run(in, out, bytes.NewBuffer(nil))
++	return err
++}
++
++type trackingReader struct {
++	data []byte
++	read bool
++}
++
++func (r *trackingReader) Read(p []byte) (int, error) {
++	r.read = true
++	if len(r.data) == 0 {
++		return 0, io.EOF
++	}
++	n := copy(p, r.data)
++	r.data = r.data[n:]
++	return n, nil
++}
++
++var errStreamTestWrite = errors.New("stream test write failure")
++
++type errorWriter struct{}
++
++func (errorWriter) Write([]byte) (int, error) { return 0, errStreamTestWrite }
++
++// acceptOneWriter accepts the first write then fails all subsequent writes.
++type acceptOneWriter struct {
++	writes int
++}
++
++func (w *acceptOneWriter) Write(p []byte) (int, error) {
++	w.writes++
++	if w.writes == 1 {
++		return len(p), nil
++	}
++	return 0, errStreamTestWrite
++}
++
++func TestStream(t *testing.T) {
++	t.Run("queries each record in order", runTest(testCase{
++		args:   []string{"--stream", `name`},
++		in:     []byte("{\"name\":\"a\"}\n{\"name\":\"b\"}\n{\"name\":\"c\"}\n"),
++		stdout: []byte("\"a\"\n\"b\"\n\"c\"\n"),
++	}))
++
++	t.Run("defaults to json without explicit formats", runTest(testCase{
++		args:   []string{"--stream", `name`},
++		in:     []byte("{\"name\":\"a\"}{\"name\":\"b\"}"),
++		stdout: []byte("\"a\"\n\"b\"\n"),
++	}))
++
++	t.Run("empty stream executes no query and outputs nothing", runTest(testCase{
++		args:   []string{"--stream", `name`},
++		in:     []byte{},
++		stdout: []byte{},
++	}))
++
++	t.Run("whitespace only stream outputs nothing", runTest(testCase{
++		args:   []string{"--stream", `name`},
++		in:     []byte("  \n\t\r\n"),
++		stdout: []byte{},
++	}))
++
++	t.Run("records can span multiple lines", runTest(testCase{
++		args:   []string{"--stream", `name`},
++		in:     []byte("{\n  \"name\": \"a\"\n}\n{\n  \"name\": \"b\"\n}\n"),
++		stdout: []byte("\"a\"\n\"b\"\n"),
++	}))
++
++	t.Run("empty query passes records through", runTest(testCase{
++		args: []string{"--stream"},
++		in:   []byte("[1, 2][3, 4]"),
++		stdout: []byte(`[
++    1,
++    2
++]
++[
++    3,
++    4
++]
++`),
++	}))
++
++	t.Run("array is one record even with elements on lines", runTest(testCase{
++		args:   []string{"--stream", `$root[0]`},
++		in:     []byte("[\n  1,\n  2\n]\n[\n  3,\n  4\n]\n"),
++		stdout: []byte("1\n3\n"),
++	}))
++
++	t.Run("scalar records", runTest(testCase{
++		args:   []string{"--stream"},
++		in:     []byte("1 2 true false \"x\" null\n"),
++		stdout: []byte("1\n2\ntrue\nfalse\n\"x\"\nnull\n"),
++	}))
++
++	t.Run("compact output", runTest(testCase{
++		args:   []string{"--stream", "--compact"},
++		in:     []byte("{\"name\":\"a\"}\n{\"name\":\"b\"}\n"),
++		stdout: []byte("{\"name\":\"a\"}\n{\"name\":\"b\"}\n"),
++	}))
++
++	t.Run("root and field modifications stay within record", runTest(testCase{
++		args:   []string{"--stream", "--root", `a = 2`},
++		in:     []byte("{\"a\":1}\n{\"a\":1}\n"),
++		stdout: []byte("{\n    \"a\": 2\n}\n{\n    \"a\": 2\n}\n"),
++	}))
++
++	t.Run("var reassignment resets for every record", runTest(testCase{
++		args:   []string{"--stream", "--var", "c=json:0", `$c = $c + 1`},
++		in:     []byte("{}\n{}\n{}\n"),
++		stdout: []byte("1\n1\n1\n"),
++	}))
++
++	t.Run("nested var mutations reset for every record", runTest(testCase{
++		args:   []string{"--stream", "--var", "x=json:{\"n\":1}", `$x.n = $x.n + 1`},
++		in:     []byte("{}\n{}\n{}\n"),
++		stdout: []byte("2\n2\n2\n"),
++	}))
++
++	t.Run("new vars do not leak into later records", runTest(testCase{
++		// The first statement creates $z; a fresh vars map per record means
++		// the second statement still resolves against the just-created var.
++		args:   []string{"--stream", `$z = "v"; $z`},
++		in:     []byte("{}\n{}\n"),
++		stdout: []byte("\"v\"\n\"v\"\n"),
++	}))
++
++	t.Run("spread keeps multi-document output per record", runTest(testCase{
++		args:   []string{"--stream", `...`},
++		in:     []byte("[1, 2]\n[3, 4]\n"),
++		stdout: []byte("1\n\n2\n3\n\n4\n"),
++	}))
++
++	t.Run("branch result writes multiple documents", runTest(testCase{
++		args:   []string{"--stream", "--unstable", `branch(...)`},
++		in:     []byte("[1, 2]\n[3]\n"),
++		stdout: []byte("1\n\n2\n3\n"),
++	}))
++
++	t.Run("parse failure keeps prior results and reports record index", func(t *testing.T) {
++		out, _, err := runDasel([]string{"--stream", `a`},
++			[]byte("{\"a\":1}\n{\"a\":2}\n{oops\n{\"a\":4}\n"))
++		if err == nil {
++			t.Fatal("expected error, got nil")
++		}
++		if !strings.Contains(err.Error(), "record 3") {
++			t.Fatalf("expected error to reference record 3, got: %v", err)
++		}
++		if string(out) != "1\n2\n" {
++			t.Fatalf("expected only prior record results, got: %q", string(out))
++		}
++	})
++
++	t.Run("query failure keeps prior results and reports record index", func(t *testing.T) {
++		out, _, err := runDasel([]string{"--stream", `a`},
++			[]byte("{\"a\":1}\n{\"a\":2}\n5\n{\"a\":4}\n"))
++		if err == nil {
++			t.Fatal("expected error, got nil")
++		}
++		if !strings.Contains(err.Error(), "record 3") {
++			t.Fatalf("expected error to reference record 3, got: %v", err)
++		}
++		if string(out) != "1\n2\n" {
++			t.Fatalf("expected only prior record results, got: %q", string(out))
++		}
++	})
++
++	t.Run("failed record emits no partial output", func(t *testing.T) {
++		out, _, err := runDasel([]string{"--stream", `a`},
++			[]byte("{\"a\":1}\n{oops\n"))
++		if err == nil {
++			t.Fatal("expected error, got nil")
++		}
++		if string(out) != "1\n" {
++			t.Fatalf("expected no output for the failed record, got: %q", string(out))
++		}
++	})
++
++	t.Run("output write failure stops further records", func(t *testing.T) {
++		w := &acceptOneWriter{}
++		err := runDaselIO([]string{"--stream", `a`},
++			strings.NewReader("{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n"), w)
++		if err == nil {
++			t.Fatal("expected error, got nil")
++		}
++		if !errors.Is(err, errStreamTestWrite) {
++			t.Fatalf("expected write failure, got: %v", err)
++		}
++		if !strings.Contains(err.Error(), "record 2") {
++			t.Fatalf("expected error to reference record 2, got: %v", err)
++		}
++		if w.writes != 2 {
++			t.Fatalf("expected processing to stop after record 2, got %d write attempts", w.writes)
++		}
++	})
++
++	t.Run("immediate output write failure reports record 1", func(t *testing.T) {
++		err := runDaselIO([]string{"--stream", `a`},
++			strings.NewReader("{\"a\":1}\n{\"a\":2}\n"), errorWriter{})
++		if err == nil {
++			t.Fatal("expected error, got nil")
++		}
++		if !errors.Is(err, errStreamTestWrite) {
++			t.Fatalf("expected write failure, got: %v", err)
++		}
++		if !strings.Contains(err.Error(), "record 1") {
++			t.Fatalf("expected error to reference record 1, got: %v", err)
++		}
++	})
++
++	t.Run("unsupported input format errors before reading input", func(t *testing.T) {
++		r := &trackingReader{data: []byte("{\"a\":1}\n")}
++		err := runDaselIO([]string{"--stream", "-i", "yaml", `a`}, r, bytes.NewBuffer(nil))
++		if err == nil {
++			t.Fatal("expected error, got nil")
++		}
++		if !strings.Contains(err.Error(), "json") {
++			t.Fatalf("expected error to mention json, got: %v", err)
++		}
++		if r.read {
++			t.Fatal("expected stdin not to be read before the format error")
++		}
++	})
++
++	t.Run("unsupported output format errors before reading input", func(t *testing.T) {
++		r := &trackingReader{data: []byte("{\"a\":1}\n")}
++		err := runDaselIO([]string{"--stream", "-o", "yaml", `a`}, r, bytes.NewBuffer(nil))
++		if err == nil {
++			t.Fatal("expected error, got nil")
++		}
++		if !strings.Contains(err.Error(), "json") {
++			t.Fatalf("expected error to mention json, got: %v", err)
++		}
++		if r.read {
++			t.Fatal("expected stdin not to be read before the format error")
++		}
++	})
++
++	t.Run("interactive combination errors before reading input", func(t *testing.T) {
++		r := &trackingReader{data: []byte("{\"a\":1}\n")}
++		err := runDaselIO([]string{"--stream", "--it", `a`}, r, bytes.NewBuffer(nil))
++		if !errors.Is(err, cli.ErrStreamInteractive) {
++			t.Fatalf("expected ErrStreamInteractive, got: %v", err)
++		}
++		if r.read {
++			t.Fatal("expected stdin not to be read before the interactive error")
++		}
++	})
++}
++
++func TestNonStreamBehaviourUnchanged(t *testing.T) {
++	t.Run("empty input outputs null", runTest(testCase{
++		args:   []string{"-i", "json", "-o", "json"},
++		in:     []byte{},
++		stdout: []byte("null\n"),
++	}))
++
++	t.Run("ndjson remains a single multi-document batch", runTest(testCase{
++		args:   []string{"-i", "json", "-o", "json", `a`},
++		in:     []byte("{\"a\":1}\n{\"a\":2}\n"),
++		stdout: []byte("1\n\n2\n"),
++	}))
++}
+diff --git a/internal/cli/query.go b/internal/cli/query.go
+index d4ea8dc..84f4439 100644
+--- a/internal/cli/query.go
++++ b/internal/cli/query.go
+@@ -1,6 +1,14 @@
+ package cli
+ 
+-import "fmt"
++import (
++	"errors"
++	"fmt"
++
++	"github.com/tomwright/dasel/v3/parsing/json"
++)
++
++// ErrStreamInteractive is returned when --stream and --it are used together.
++var ErrStreamInteractive = errors.New("--stream cannot be combined with --it")
+ 
+ type QueryCmd struct {
+ 	Vars              variables         `flag:"" name:"var" help:"Variables to pass to the query. E.g. --var foo=\"bar\" --var baz=json:file:./some/file.json"`
+@@ -13,6 +21,7 @@ type QueryCmd struct {
+ 	Compact           bool              `flag:"" name:"compact" help:"Output in compact mode (no indentation/newlines)."`
+ 	Unstable          bool              `flag:"" name:"unstable" help:"Allow access to potentially unstable features."`
+ 	Interactive       bool              `flag:"" name:"it" help:"Run in interactive mode (alpha)."`
++	Stream            bool              `flag:"" name:"stream" help:"Read a stream of independent top-level JSON values from stdin and output one result per value (JSON input/output only; cannot be combined with --it)."`
+ 
+ 	ConfigPath string `name:"config" short:"c" help:"Path to config file" default:"~/dasel.yaml"`
+ 
+@@ -25,12 +34,27 @@ func (c *QueryCmd) Run(ctx *Globals) error {
+ 		return err
+ 	}
+ 
+-	if c.InFormat == "" && c.OutFormat == "" {
++	if c.Stream {
++		// Validate flags before any input is read.
++		if c.Interactive {
++			return ErrStreamInteractive
++		}
++		jsonFormat := json.JSON.String()
++		if c.InFormat != "" && c.InFormat != jsonFormat {
++			return fmt.Errorf("--stream only supports json input, got %q", c.InFormat)
++		}
++		if c.OutFormat != "" && c.OutFormat != jsonFormat {
++			return fmt.Errorf("--stream only supports json output, got %q", c.OutFormat)
++		}
++		// Omitted formats always default to JSON in stream mode.
++		c.InFormat = jsonFormat
++		c.OutFormat = jsonFormat
++	} else if c.InFormat == "" && c.OutFormat == "" {
+ 		c.InFormat = cfg.DefaultFormat
+ 		c.OutFormat = cfg.DefaultFormat
+ 	}
+ 
+-	if c.Query == "" && c.InFormat == "" && ctx.Stdin == nil {
++	if !c.Stream && c.Query == "" && c.InFormat == "" && ctx.Stdin == nil {
+ 		return ErrNoArgsGiven
+ 	}
+ 
+@@ -54,6 +78,11 @@ func (c *QueryCmd) Run(ctx *Globals) error {
+ 
+ 		Stdin: ctx.Stdin,
+ 	}
++
++	if c.Stream {
++		return runStream(o, ctx.Stdin, ctx.Stdout)
++	}
++
+ 	outBytes, err := run(o)
+ 	if err != nil {
+ 		return err
+diff --git a/internal/cli/run.go b/internal/cli/run.go
+index ac4cb87..d077d0d 100644
+--- a/internal/cli/run.go
++++ b/internal/cli/run.go
+@@ -2,12 +2,14 @@ package cli
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 
+ 	"github.com/tomwright/dasel/v3/execution"
+ 	"github.com/tomwright/dasel/v3/model"
+ 	"github.com/tomwright/dasel/v3/parsing"
++	"github.com/tomwright/dasel/v3/parsing/json"
+ )
+ 
+ type runOpts struct {
+@@ -109,3 +111,147 @@ func run(o runOpts) ([]byte, error) {
+ 
+ 	return outputBytes, nil
+ }
++
++// runStream runs a query against a stream of independent top-level JSON
++// values read from stdin.
++//
++// Each value is treated as one input record. A record is fully parsed,
++// queried and serialised before the next record is processed, and the
++// result is written to stdout before continuing, so a blocked output
++// prevents further queries. Every record starts with its own $root and a
++// fresh copy of the initial --var values.
++func runStream(o runOpts, stdin io.Reader, stdout io.Writer) error {
++	writerOptions := parsing.DefaultWriterOptions()
++	writerOptions.Compact = o.Compact
++	applyWriterFlags(&writerOptions, o.ExtWriteFlags, o.ExtReadWriteFlags)
++
++	// Format validation happens before runStream is called.
++	writer, err := json.JSON.NewWriter(writerOptions)
++	if err != nil {
++		return fmt.Errorf("failed to get output writer: %w", err)
++	}
++
++	if stdin == nil {
++		// An empty stream executes no queries and outputs nothing.
++		return nil
++	}
++
++	var initialVars []variable
++	if o.Vars != nil {
++		initialVars = *o.Vars
++	}
++
++	streamReader := json.NewStreamReader(stdin)
++
++	recordNum := 0
++	for {
++		inputData, err := streamReader.Next()
++		if errors.Is(err, io.EOF) {
++			return nil
++		}
++		recordNum++
++		if err != nil {
++			return fmt.Errorf("error parsing input record %d: %w", recordNum, err)
++		}
++
++		opts := make([]execution.ExecuteOptionFn, 0, len(initialVars)+2)
++		for _, v := range initialVars {
++			varCopy, err := copyStreamValue(v.Value)
++			if err != nil {
++				return fmt.Errorf("error preparing variable %q for input record %d: %w", v.Name, recordNum, err)
++			}
++			opts = append(opts, execution.WithVariable(v.Name, varCopy))
++		}
++		opts = append(opts, execution.WithVariable("root", inputData))
++		if o.Unstable {
++			opts = append(opts, execution.WithUnstable())
++		}
++
++		out, err := execution.ExecuteSelector(context.Background(), o.Query, inputData, execution.NewOptions(opts...))
++		if err != nil {
++			return fmt.Errorf("error executing query on input record %d: %w", recordNum, err)
++		}
++
++		if o.ReturnRoot {
++			out = inputData
++		}
++
++		// Serialise the whole result before publishing any of it, so a
++		// failed record never produces a partial output.
++		outputBytes, err := writer.Write(out)
++		if err != nil {
++			return fmt.Errorf("error serialising result for input record %d: %w", recordNum, err)
++		}
++
++		// Publish the complete result, in input order, before reading or
++		// querying the next record. A blocked writer applies backpressure.
++		if _, err := stdout.Write(outputBytes); err != nil {
++			return fmt.Errorf("error writing output for input record %d: %w", recordNum, err)
++		}
++	}
++}
++
++// copyStreamValue returns a deep, independent copy of v so that mutations
++// made while processing one stream record cannot leak into the next one.
++func copyStreamValue(v *model.Value) (*model.Value, error) {
++	switch v.Type() {
++	case model.TypeMap:
++		res := model.NewMapValue()
++		if err := v.RangeMap(func(k string, cv *model.Value) error {
++			cp, err := copyStreamValue(cv)
++			if err != nil {
++				return err
++			}
++			return res.SetMapKey(k, cp)
++		}); err != nil {
++			return nil, err
++		}
++		return res, nil
++	case model.TypeSlice:
++		res := model.NewSliceValue()
++		if v.IsBranch() {
++			res.MarkAsBranch()
++		}
++		if v.IsSpread() {
++			res.MarkAsSpread()
++		}
++		if err := v.RangeSlice(func(_ int, cv *model.Value) error {
++			cp, err := copyStreamValue(cv)
++			if err != nil {
++				return err
++			}
++			return res.Append(cp)
++		}); err != nil {
++			return nil, err
++		}
++		return res, nil
++	case model.TypeString:
++		val, err := v.StringValue()
++		if err != nil {
++			return nil, err
++		}
++		return model.NewStringValue(val), nil
++	case model.TypeInt:
++		val, err := v.IntValue()
++		if err != nil {
++			return nil, err
++		}
++		return model.NewIntValue(val), nil
++	case model.TypeFloat:
++		val, err := v.FloatValue()
++		if err != nil {
++			return nil, err
++		}
++		return model.NewFloatValue(val), nil
++	case model.TypeBool:
++		val, err := v.BoolValue()
++		if err != nil {
++			return nil, err
++		}
++		return model.NewBoolValue(val), nil
++	case model.TypeNull:
++		return model.NewNullValue(), nil
++	default:
++		return nil, fmt.Errorf("cannot copy value of type %s", v.Type())
++	}
++}
+diff --git a/parsing/json/json_reader.go b/parsing/json/json_reader.go
+index 44c00dd..9116d2d 100644
+--- a/parsing/json/json_reader.go
++++ b/parsing/json/json_reader.go
+@@ -7,6 +7,7 @@ import (
+ 	json "github.com/goccy/go-json"
+ 	"github.com/tomwright/dasel/v3/model"
+ 	"github.com/tomwright/dasel/v3/parsing"
++	"io"
+ 	"strings"
+ )
+ 
+@@ -57,6 +58,65 @@ func (j *jsonReader) Read(data []byte) (*model.Value, error) {
+ 	}
+ }
+ 
++// NewStreamReader creates a StreamReader that decodes consecutive top-level
++// JSON values from r, one value at a time.
++//
++// A single value may span multiple reads or multiple lines, and arrays,
++// objects and scalars are each treated as one value.
++func NewStreamReader(r io.Reader) *StreamReader {
++	tracked := &errorTrackingReader{r: r}
++	decoder := json.NewDecoder(tracked)
++	decoder.UseNumber()
++	return &StreamReader{
++		decoder: decoder,
++		reader:  &jsonReader{},
++		r:       tracked,
++	}
++}
++
++// StreamReader reads top-level JSON values from an io.Reader as a stream.
++type StreamReader struct {
++	decoder *json.Decoder
++	reader  *jsonReader
++	r       *errorTrackingReader
++}
++
++// Next decodes and returns the next top-level JSON value.
++//
++// It returns io.EOF when the stream has reached a clean end with no more
++// values. Whitespace-only input results in io.EOF without a value.
++func (s *StreamReader) Next() (*model.Value, error) {
++	if !s.decoder.More() {
++		if s.r.err != nil {
++			return nil, s.r.err
++		}
++		return nil, io.EOF
++	}
++	v, err := s.reader.decodeValue(s.decoder, 0)
++	if err != nil {
++		if s.r.err != nil {
++			return nil, s.r.err
++		}
++		return nil, err
++	}
++	return v, nil
++}
++
++// errorTrackingReader remembers the last non-EOF read error because the
++// underlying JSON decoder silently treats reader errors as end of input.
++type errorTrackingReader struct {
++	r   io.Reader
++	err error
++}
++
++func (r *errorTrackingReader) Read(p []byte) (int, error) {
++	n, err := r.r.Read(p)
++	if err != nil && err != io.EOF {
++		r.err = err
++	}
++	return n, err
++}
++
+ func (j *jsonReader) decodeValue(decoder *json.Decoder, depth int) (*model.Value, error) {
+ 	t, err := decoder.Token()
+ 	if err != nil {
+diff --git a/parsing/json/json_test.go b/parsing/json/json_test.go
+index 572f39e..5564474 100644
+--- a/parsing/json/json_test.go
++++ b/parsing/json/json_test.go
+@@ -2,6 +2,7 @@ package json_test
+ 
+ import (
+ 	"errors"
++	"io"
+ 	"strings"
+ 	"testing"
+ 
+@@ -718,6 +719,129 @@ func TestJSONReader_DepthLimit(t *testing.T) {
+ 	})
+ }
+ 
++// oneByteReader serves one byte per Read, simulating a long-lived pipe
++// where each JSON document spans many reads.
++type oneByteReader struct {
++	data []byte
++	pos  int
++}
++
++func (r *oneByteReader) Read(p []byte) (int, error) {
++	if r.pos >= len(r.data) {
++		return 0, io.EOF
++	}
++	if len(p) == 0 {
++		return 0, nil
++	}
++	p[0] = r.data[r.pos]
++	r.pos++
++	return 1, nil
++}
++
++func streamValues(t *testing.T, r io.Reader) []any {
++	t.Helper()
++	sr := json.NewStreamReader(r)
++	var got []any
++	for {
++		v, err := sr.Next()
++		if errors.Is(err, io.EOF) {
++			break
++		}
++		if err != nil {
++			t.Fatalf("unexpected error: %v", err)
++		}
++		gv, err := v.GoValue()
++		if err != nil {
++			t.Fatalf("unexpected error converting value: %v", err)
++		}
++		got = append(got, gv)
++	}
++	return got
++}
++
++func TestStreamReader(t *testing.T) {
++	t.Run("mixed top-level values", func(t *testing.T) {
++		got := streamValues(t, strings.NewReader(`{"a": 1} [1, 2] "str" 42 true null`+"\n"))
++		expected := []any{
++			map[string]any{"a": int64(1)},
++			[]any{int64(1), int64(2)},
++			"str",
++			int64(42),
++			true,
++			nil,
++		}
++		if diff := cmp.Diff(expected, got); diff != "" {
++			t.Fatalf("unexpected values: %s", diff)
++		}
++	})
++
++	t.Run("array is a single record", func(t *testing.T) {
++		got := streamValues(t, strings.NewReader(`[1,2][3,4]`))
++		expected := []any{
++			[]any{int64(1), int64(2)},
++			[]any{int64(3), int64(4)},
++		}
++		if diff := cmp.Diff(expected, got); diff != "" {
++			t.Fatalf("unexpected values: %s", diff)
++		}
++	})
++
++	t.Run("scalars need JSON whitespace separators", func(t *testing.T) {
++		got := streamValues(t, strings.NewReader("1 2\n3\ttrue false \"x\""))
++		expected := []any{int64(1), int64(2), int64(3), true, false, "x"}
++		if diff := cmp.Diff(expected, got); diff != "" {
++			t.Fatalf("unexpected values: %s", diff)
++		}
++	})
++
++	t.Run("empty input returns EOF without values", func(t *testing.T) {
++		sr := json.NewStreamReader(strings.NewReader(""))
++		if _, err := sr.Next(); !errors.Is(err, io.EOF) {
++			t.Fatalf("expected io.EOF, got %v", err)
++		}
++	})
++
++	t.Run("whitespace only returns EOF without values", func(t *testing.T) {
++		sr := json.NewStreamReader(strings.NewReader("  \n\t\r\n "))
++		if _, err := sr.Next(); !errors.Is(err, io.EOF) {
++			t.Fatalf("expected io.EOF, got %v", err)
++		}
++	})
++
++	t.Run("documents span multiple reads and lines", func(t *testing.T) {
++		input := []byte("{\n  \"a\": 1,\n  \"b\": [2, 3]\n}\n{\n  \"a\": 4\n}\n")
++		got := streamValues(t, &oneByteReader{data: input})
++		expected := []any{
++			map[string]any{"a": int64(1), "b": []any{int64(2), int64(3)}},
++			map[string]any{"a": int64(4)},
++		}
++		if diff := cmp.Diff(expected, got); diff != "" {
++			t.Fatalf("unexpected values: %s", diff)
++		}
++	})
++
++	t.Run("invalid json returns error after previous values", func(t *testing.T) {
++		sr := json.NewStreamReader(strings.NewReader(`{"a": 1} {"a":`))
++		v, err := sr.Next()
++		if err != nil {
++			t.Fatalf("unexpected error on first record: %v", err)
++		}
++		if v.Type() != model.TypeMap {
++			t.Fatalf("expected map, got %s", v.Type())
++		}
++		if _, err := sr.Next(); err == nil {
++			t.Fatal("expected error for truncated record, got nil")
++		}
++	})
++
++	t.Run("invalid token returns error", func(t *testing.T) {
++		sr := json.NewStreamReader(strings.NewReader(`{bad}`))
++		if _, err := sr.Next(); err == nil {
++			t.Fatal("expected error, got nil")
++		}
++	})
++}
++
+ func TestJSONReader_ExponentNumbers(t *testing.T) {
+ 	reader, err := json.JSON.NewReader(parsing.DefaultReaderOptions())
+ 	if err != nil {

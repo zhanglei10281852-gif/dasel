@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "start",
+    "file": "C:\\Users\\czxy4\\AppData\\Roaming\\Trae CN\\logs\\20261108T132646\\window1\\renderer.log",
+    "line": 8113,
+    "raw": "2026-11-08T14:29:12.056+08:00 [info] [ai-chat/v2][Realtime] event: session_created {\"chat_session_id\":\"6af016b7443b5a2122696b4c\",\"user_id\":\"573311172224344\",\"mode\":\"chat\",\"status\":1,\"origin\":\"lite\",\"created_at\":1794119352050,\"project_id\":\"6af016a5443b5a2122696b4b\",\"real_project_id\":\"6af016a5443b5a2122696b4b\"}"
+  },
+  {
+    "kind": "completed",
+    "file": "C:\\Users\\czxy4\\AppData\\Roaming\\Trae CN\\logs\\20261108T132646\\window1\\renderer.log",
+    "line": 8349,
+    "raw": "2026-11-08T15:22:23.144+08:00 [info] [ai-chat/v2][Realtime] event: session_updated {\"chat_session_id\":\"6af016b7443b5a2122696b4c\",\"user_id\":\"573311172224344\",\"status\":5,\"updated_at\":1794122543143}"
+  }
+]

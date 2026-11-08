@@ -1,0 +1,30 @@
+CHECK R1_prevalidate met=true args=["--stream" "-i" "yaml"] reads=0 err=--stream only supports json input, got "yaml"
+CHECK R1_prevalidate met=true args=["--stream" "-o" "yaml"] reads=0 err=--stream only supports json output, got "yaml"
+CHECK R1_prevalidate met=true args=["--stream" "--it"] reads=0 err=--stream cannot be combined with --it
+CHECK R1_empty_no_query met=true out="" err=<nil>
+CHECK R1_whitespace met=true out="" err=<nil>
+CHECK R1_open_pipe met=true out="\"open\"\n" inputStillOpen=true
+CHECK R1_pipe_completion met=true err=<nil>
+CHECK R2_mixed_values met=true out="{\"a\":1}\n[1,2]\n1\n2\ntrue\nfalse\n\"x\"\nnull\n" err=<nil>
+CHECK R3_nested_var met=true out="[2,3]\n[2,3]\n[2,3]\n" err=<nil>
+CHECK R3_root_independent met=true out="{\"a\":2}\n{\"a\":6}\n" err=<nil>
+CHECK R3_html_flag met=true out="\"\\u003ca\\u003e\"\n\"\\u0026\"\n" err=<nil>
+CHECK R3_rw_flag met=true out="\"\\u003ca\\u003e\"\n" err=<nil>
+CHECK R3_spread met=true out="1\n\n2\n3\n" err=<nil>
+CHECK R3_branch met=true out="1\n\n2\n3\n" err=<nil>
+CHECK R3_new_var_absent met=true out="9\n" err=error executing query on input record 2: error executing selector: execution error when processing ast.ConditionalExpr: error executing else block: execution error when processing ast.VariableExpr: variable z not found
+CHECK R4_parse_{"a": met=false bad="{\"a\":" out="1\n" queries=1 err=<nil>
+CHECK R4_parse_[1, met=false bad="[1," out="1\n" queries=1 err=<nil>
+CHECK R4_parse_] met=false bad="]" out="1\n" queries=1 err=<nil>
+CHECK R4_parse_} met=false bad="}" out="1\n" queries=1 err=<nil>
+CHECK R4_parse_{bad} met=true bad="{bad}" out="1\n" queries=1 err=error parsing input record 2: could not decode object: json: invalid character b as token
+CHECK R4_query_failure met=true out="1\n" queries=2 err=error executing query on input record 2: error executing selector: execution error when processing ast.ChainedExpr: error executing expression: execution error when processing ast.CallExpr: error executing function: error execution func "toInt": strconv.ParseInt: parsing "bad": invalid syntax
+CHECK R4_fresh_invocation met=true out="3\n" err=<nil>
+CHECK R5_real_encoding_failure met=true out="[1,1]\n" queries=2 err=error serialising result for input record 2: json: unsupported value: +Inf
+CHECK R6_backpressure_fail_false met=true queriesAtBarrier=2 finalQueries=3 writes=3 accepted="1\n2\n3\n" err=<nil>
+CHECK R6_backpressure_fail_true met=true queriesAtBarrier=2 finalQueries=2 writes=2 accepted="1\n2" err=error writing output for input record 2: controlled sink failure
+CHECK R6_bounded_input_storage met=false records=1024 buffer=65536 records=32768 buffer=2097152 retainedCursor=1277951 totalInputBytes=1277952
+CHECK R7_batch met=true out="1\n\n2\n" err=<nil>
+CHECK R7_empty met=true out="null\n" err=<nil>
+CHECK R7_json_to_yaml met=true out="a: 1\n" err=<nil>
+INDEPENDENT SUMMARY checks=29 unmet=5

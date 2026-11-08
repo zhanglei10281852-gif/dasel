@@ -1,0 +1,16 @@
+{
+  "questionId": "tomwright-dasel-963a36fb-d904-45a5-ae55-b49bf36fe169",
+  "title": "开放 JSON 管道的逐文档独立执行",
+  "repoUrl": "https://github.com/TomWright/dasel",
+  "version": "521d3c39fe06b276f65695d3ae27bd46b76c4106",
+  "researchDirectory": "F:\\swe\\099924\\project-02",
+  "batchDirectory": "F:\\swe\\099924",
+  "sessionId": "573311172224344:0cd924df4aeef9dbe62cdf9e10137cca_6af016b7443b5a2122696b4c.6af016b8443b5a2122696b4f.6af016b7443b5a2122696b4d:TraeCode CN.3.3.104.no_sid.no_ppe.T(2026/11/8 14:29:12)",
+  "sourceFile": "trae-bridge:bridge_messages",
+  "localFile": "F:\\swe\\099924\\trajectories\\tomwright-dasel-963a36fb-d904-45a5-ae55-b49bf36f-215b6a40\\session-67bac5b32eeced2f.md",
+  "traceFormat": "trae-bridge:bridge_messages",
+  "memorySourceFile": "",
+  "memoryLocalFile": "",
+  "traceUpdatedAt": "2026-11-08T07:28:11.145Z",
+  "archivedAt": "2026-11-08T07:28:12.221Z"
+}

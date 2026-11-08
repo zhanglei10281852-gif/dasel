@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-11-08T08:23:31.314Z",
+  "repo": "https://github.com/zhanglei10281852-gif/dasel",
+  "fork": true,
+  "parent": "TomWright/dasel",
+  "permissions": {
+    "admin": true,
+    "maintain": true,
+    "push": true,
+    "triage": true,
+    "pull": true
+  }
+}

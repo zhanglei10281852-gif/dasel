@@ -2,6 +2,7 @@ package json_test
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -714,6 +715,129 @@ func TestJSONReader_DepthLimit(t *testing.T) {
 		_, err := reader.Read(data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+// oneByteReader serves one byte per Read, simulating a long-lived pipe
+// where each JSON document spans many reads.
+type oneByteReader struct {
+	data []byte
+	pos  int
+}
+
+func (r *oneByteReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	p[0] = r.data[r.pos]
+	r.pos++
+	return 1, nil
+}
+
+func streamValues(t *testing.T, r io.Reader) []any {
+	t.Helper()
+	sr := json.NewStreamReader(r)
+	var got []any
+	for {
+		v, err := sr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		gv, err := v.GoValue()
+		if err != nil {
+			t.Fatalf("unexpected error converting value: %v", err)
+		}
+		got = append(got, gv)
+	}
+	return got
+}
+
+func TestStreamReader(t *testing.T) {
+	t.Run("mixed top-level values", func(t *testing.T) {
+		got := streamValues(t, strings.NewReader(`{"a": 1} [1, 2] "str" 42 true null`+"\n"))
+		expected := []any{
+			map[string]any{"a": int64(1)},
+			[]any{int64(1), int64(2)},
+			"str",
+			int64(42),
+			true,
+			nil,
+		}
+		if diff := cmp.Diff(expected, got); diff != "" {
+			t.Fatalf("unexpected values: %s", diff)
+		}
+	})
+
+	t.Run("array is a single record", func(t *testing.T) {
+		got := streamValues(t, strings.NewReader(`[1,2][3,4]`))
+		expected := []any{
+			[]any{int64(1), int64(2)},
+			[]any{int64(3), int64(4)},
+		}
+		if diff := cmp.Diff(expected, got); diff != "" {
+			t.Fatalf("unexpected values: %s", diff)
+		}
+	})
+
+	t.Run("scalars need JSON whitespace separators", func(t *testing.T) {
+		got := streamValues(t, strings.NewReader("1 2\n3\ttrue false \"x\""))
+		expected := []any{int64(1), int64(2), int64(3), true, false, "x"}
+		if diff := cmp.Diff(expected, got); diff != "" {
+			t.Fatalf("unexpected values: %s", diff)
+		}
+	})
+
+	t.Run("empty input returns EOF without values", func(t *testing.T) {
+		sr := json.NewStreamReader(strings.NewReader(""))
+		if _, err := sr.Next(); !errors.Is(err, io.EOF) {
+			t.Fatalf("expected io.EOF, got %v", err)
+		}
+	})
+
+	t.Run("whitespace only returns EOF without values", func(t *testing.T) {
+		sr := json.NewStreamReader(strings.NewReader("  \n\t\r\n "))
+		if _, err := sr.Next(); !errors.Is(err, io.EOF) {
+			t.Fatalf("expected io.EOF, got %v", err)
+		}
+	})
+
+	t.Run("documents span multiple reads and lines", func(t *testing.T) {
+		input := []byte("{\n  \"a\": 1,\n  \"b\": [2, 3]\n}\n{\n  \"a\": 4\n}\n")
+		got := streamValues(t, &oneByteReader{data: input})
+		expected := []any{
+			map[string]any{"a": int64(1), "b": []any{int64(2), int64(3)}},
+			map[string]any{"a": int64(4)},
+		}
+		if diff := cmp.Diff(expected, got); diff != "" {
+			t.Fatalf("unexpected values: %s", diff)
+		}
+	})
+
+	t.Run("invalid json returns error after previous values", func(t *testing.T) {
+		sr := json.NewStreamReader(strings.NewReader(`{"a": 1} {"a":`))
+		v, err := sr.Next()
+		if err != nil {
+			t.Fatalf("unexpected error on first record: %v", err)
+		}
+		if v.Type() != model.TypeMap {
+			t.Fatalf("expected map, got %s", v.Type())
+		}
+		if _, err := sr.Next(); err == nil {
+			t.Fatal("expected error for truncated record, got nil")
+		}
+	})
+
+	t.Run("invalid token returns error", func(t *testing.T) {
+		sr := json.NewStreamReader(strings.NewReader(`{bad}`))
+		if _, err := sr.Next(); err == nil {
+			t.Fatal("expected error, got nil")
 		}
 	})
 }

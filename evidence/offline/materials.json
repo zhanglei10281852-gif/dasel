@@ -1,0 +1,6 @@
+{
+  "sha256": "e2103619dc0a5e83387f431c9e93449319b0b4d089983d5b27c76e35b60b7aac",
+  "source": "go mod vendor -o from current unchanged pinned go.mod/go.sum with GOPROXY=off",
+  "goMinimum": "1.25",
+  "runtimeDownloads": false
+}
